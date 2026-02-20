@@ -1,4 +1,5 @@
 const KiloAPI = require('./kilo_api');
+const MemoryManager = require('./memory_manager');
 
 class CommandParser {
     constructor() {
@@ -111,7 +112,17 @@ class CommandParser {
         }
 
         // --- Normal LLM Query ---
-        const { text: responseText, durationSec } = await KiloAPI.queryLLM(this.activeModel, cmd, this.systemPrompt);
+        // For WhatsApp groups/LID, sender is remoteJid::participantPhone. 
+        // We track memory per chat/group, so we use remoteJid.
+        const chatId = platform === 'whatsapp' && sender.includes('::') ? sender.split('::')[0] : sender;
+        const history = MemoryManager.getHistory(chatId);
+
+        // Send original 'text' to preserve casing and whitespace, not the lowercased 'cmd'
+        const { text: responseText, durationSec } = await KiloAPI.queryLLM(this.activeModel, text, this.systemPrompt, history);
+
+        // Save conversation history
+        MemoryManager.addMessage(chatId, 'user', text);
+        MemoryManager.addMessage(chatId, 'assistant', responseText);
 
         let finalResponse = responseText + this.getTimestampFooter(this.activeModel, durationSec);
         return finalResponse;

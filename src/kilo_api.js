@@ -26,12 +26,13 @@ class KiloAPI {
         }
     }
 
-    async queryLLM(modelName, messageText, systemPrompt) {
+    async queryLLM(modelName, messageText, systemPrompt, history = []) {
         try {
             const requestBody = {
                 model: modelName,
                 messages: [
                     { role: 'system', content: systemPrompt },
+                    ...history,
                     { role: 'user', content: messageText }
                 ],
                 max_tokens: 1000
