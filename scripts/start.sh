@@ -1,19 +1,15 @@
 #!/bin/bash
 # Start script for GregAI WebService Docker Container
 
-# Start Cron daemon (Debian: service cron start, or just cron)
-cron 2>/dev/null || service cron start 2>/dev/null || echo "[WARN] Could not start cron"
+# Start Cron daemon (Debian)
+cron 2>/dev/null || echo "[WARN] Could not start cron"
 
 echo "=============================================="
-echo "  GregAI Container Startup Diagnostics"
+echo "  GregAI Container Startup"
 echo "=============================================="
 
-echo "[DIAG] Java version:"
-java -version 2>&1
-
-echo "[DIAG] Signal-CLI:"
-which signal-cli 2>&1
-signal-cli --version 2>&1 || echo "[DIAG] signal-cli --version failed"
+echo "[DIAG] Signal-CLI (native image, no Java needed):"
+which signal-cli && signal-cli --version 2>&1 || echo "[DIAG] ERROR: signal-cli not found!"
 
 echo "[DIAG] Memory:"
 free -m 2>/dev/null || echo "(free not available)"
@@ -31,21 +27,21 @@ else
 fi
 
 echo "=============================================="
-echo "  Starting Signal-CLI Daemon"
+echo "  Starting Signal-CLI Daemon (native)"
 echo "=============================================="
 
-# Pass JVM memory limits directly via -J flags
-signal-cli -J-Xmx128m -J-Xms64m \
+# Native image — no -J flags needed, it manages its own memory
+signal-cli \
     --config /app/data/signal \
     -o json \
     --receive-mode manual \
     daemon --tcp 127.0.0.1:8080 \
     > /app/signal-cli.log 2>&1 &
 SIGNAL_PID=$!
-echo "[Signal] Launched with PID: $SIGNAL_PID"
+echo "[Signal] Launched daemon PID: $SIGNAL_PID"
 
-# Wait for JVM startup
-sleep 8
+# Native image starts much faster than JVM (2s vs 8s)
+sleep 3
 
 # Check if alive
 if kill -0 $SIGNAL_PID 2>/dev/null; then
