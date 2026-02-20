@@ -6,6 +6,12 @@ class CommandParser {
         this.systemPrompt = "You are GregAI, a helpful, efficient and concise AI assistant.";
         this.isSleeping = false;
         this.lastModelList = []; // Cache for numbered model selection
+        this.adminPhone = '31621313513'; // GregHuman — only user allowed to /restart
+    }
+
+    isAdmin(sender) {
+        // Match against WhatsApp JID (31621313513@s.whatsapp.net) or Signal (+31621313513)
+        return sender && sender.includes(this.adminPhone);
     }
 
     getTimestampFooter(modelName, durationSec) {
@@ -31,6 +37,7 @@ class CommandParser {
                 this.isSleeping = false;
                 return "GregAI is now awake and ready to assist.";
             } else if (cmd === '/restart') {
+                if (!this.isAdmin(sender)) return "Sorry, only GregHuman is allowed to restart me! 🔒";
                 return { action: 'RESTART' };
             } else if (cmd === '/help') {
                 // Allow /help even while sleeping
@@ -46,6 +53,7 @@ class CommandParser {
         }
 
         if (cmd === '/restart') {
+            if (!this.isAdmin(sender)) return "Sorry, only GregHuman is allowed to restart me! 🔒";
             return { action: 'RESTART' };
         }
 
