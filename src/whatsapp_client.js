@@ -1,6 +1,7 @@
-const { makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const NodeCache = require('node-cache');
+const qrcode = require('qrcode-terminal');
+const fs = require('fs');
 
 class WhatsAppClient {
     constructor(routerCallback) {
@@ -10,21 +11,47 @@ class WhatsAppClient {
     }
 
     async start() {
+        const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = await import('@whiskeysockets/baileys');
         const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
 
         this.sock = makeWASocket({
             auth: state,
-            printQRInTerminal: true,
+            printQRInTerminal: false,
             logger: pino({ level: 'silent' }),
             msgRetryCounterCache: this.msgRetryCounterCache,
-            browser: ['GregAI', 'MacOS', '1.0'],
+            browser: ['Ubuntu', 'Chrome', '20.0.04'], // Specifically required browser sig for pairing codes
             syncFullHistory: false
         });
+
+        if (!this.sock.authState.creds.registered) {
+            const phoneNumber = process.env.WHATSAPP_PHONE?.replace(/[^0-9]/g, '');
+            if (phoneNumber) {
+                setTimeout(async () => {
+                    try {
+                        let code = await this.sock.requestPairingCode(phoneNumber);
+                        code = code?.match(/.{1,4}/g)?.join('-');
+                        fs.writeFileSync('pairing_code.txt', code || 'FAILED');
+                        console.log(`\n======================================================`);
+                        console.log(`[WhatsApp] PAIRING CODE: ${code}`);
+                        console.log(`[WhatsApp] Go to WhatsApp -> Linked Devices -> Link with Phone Number`);
+                        console.log(`======================================================\n`);
+                    } catch (e) {
+                        console.error('[WhatsApp] Failed to request pairing code:', e);
+                    }
+                }, 3000);
+            }
+        }
 
         this.sock.ev.on('creds.update', saveCreds);
 
         this.sock.ev.on('connection.update', (update) => {
-            const { connection, lastDisconnect } = update;
+            const { connection, lastDisconnect, qr } = update;
+
+            if (qr && !process.env.WHATSAPP_PHONE) {
+                console.log('[WhatsApp] Action Required: Scan the QR code below:');
+                qrcode.generate(qr, { small: true });
+            }
+
             if (connection === 'close') {
                 const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
                 console.log(`[WhatsApp] Connection closed. Reconnecting: ${shouldReconnect}`);
