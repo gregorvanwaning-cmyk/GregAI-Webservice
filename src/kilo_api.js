@@ -3,29 +3,26 @@ const axios = require('axios');
 class KiloAPI {
     constructor() {
         this.apiKey = process.env.KILO_API_KEY;
-        this.baseUrl = 'https://api.kilocode.com/v1'; // Assuming standard OpenAI-compatible URL structure for Kilo
+        this.baseUrl = 'https://api.kilo.ai/api/gateway';
         if (!this.apiKey) {
             console.warn('[KiloAPI] WARNING: KILO_API_KEY environment variable is not set!');
         }
     }
 
     async getTopFreeModels() {
-        // Mock method until actual endpoints are specified by the Kilo Code documentation
-        // Let's assume Kilo uses openai-compatible `/models` endpoint
         try {
             const response = await axios.get(`${this.baseUrl}/models`, {
                 headers: { 'Authorization': `Bearer ${this.apiKey}` }
             });
 
-            // Filter out models that might be paid or just grab all. 
-            // In absence of exact api schema, just assume standard response.
-            let models = response.data.data.map(m => m.id);
-            // Limit to 5
+            // Filter to only free models (those with ':free' suffix or 'kilo/auto')
+            let models = response.data.data
+                .map(m => m.id)
+                .filter(id => id.includes(':free') || id === 'kilo/auto');
             return models.slice(0, 5);
         } catch (error) {
             console.error('[KiloAPI] Error fetching models:', error?.response?.data || error.message);
-            // Fallback list of generic free models for testing if API fails
-            return ["minimax", "qwen-2.5-coder-32b", "llama-3-8b", "mistral-7b", "gemma-2b"];
+            return ["kilo/auto", "minimax/minimax-m2.5:free", "z-ai/glm-5:free"];
         }
     }
 

@@ -2,7 +2,7 @@ const KiloAPI = require('./kilo_api');
 
 class CommandParser {
     constructor() {
-        this.activeModel = "qwen-2.5-coder-32b"; // default fallback
+        this.activeModel = "minimax/minimax-m2.5:free";
         this.systemPrompt = "You are GregAI, a helpful, efficient and concise AI assistant.";
         this.isSleeping = false;
     }
