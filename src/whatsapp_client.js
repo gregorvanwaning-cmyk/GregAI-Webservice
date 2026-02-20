@@ -22,6 +22,18 @@ class WhatsAppClient {
         await this._createSocket();
     }
 
+    async reconnect() {
+        console.log('[WhatsApp] Forcefully disconnecting and rebuilding socket...');
+        if (this.sock) {
+            try {
+                this.sock.ws.close();
+            } catch (e) {
+                // Ignore errors closing a dead socket
+            }
+        }
+        setTimeout(() => this._createSocket(), 2000);
+    }
+
     async _createSocket() {
         const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = this._baileys;
         const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');

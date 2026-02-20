@@ -96,8 +96,8 @@ async function bootstrap() {
                 ]);
             }
         } catch (e) {
-            console.error(`[Monitor] WhatsApp connection appears DEAD! Triggering restart...`, e.message);
-            restartServices();
+            console.error(`[Monitor] WhatsApp connection appears DEAD! Rebuilding socket...`, e.message);
+            if (whatsapp) whatsapp.reconnect();
         }
     }, 2 * 60 * 1000);
 }
