@@ -101,10 +101,17 @@ class WhatsAppClient {
         }
 
         try {
-            await this.sock.sendMessage(recipientJid, { text: text });
-            console.log(`[WhatsApp] Sent message to ${recipientJid}`);
+            const sendPromise = this.sock.sendMessage(recipientJid, { text: text });
+
+            // Defend against silent Baileys Promise hangs by wrapping in a 5-second timeout
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('TIMEOUT: WhatsApp server did not acknowledge message dispatch within 5 seconds')), 5000);
+            });
+
+            await Promise.race([sendPromise, timeoutPromise]);
+            console.log(`[WhatsApp] Successfully returned HTTP ACK for sent message to ${recipientJid}`);
         } catch (error) {
-            console.error('[WhatsApp] Send error:', error);
+            console.error(`[WhatsApp] Send error to ${recipientJid}:`, error.message || error);
         }
     }
 }
