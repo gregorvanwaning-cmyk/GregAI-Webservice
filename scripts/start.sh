@@ -7,11 +7,9 @@ crond -b
 echo "Starting Signal-CLI REST API (Daemon mode) limited to 128MB..."
 # We map the persistent volume to `/app/signal_data` in render.yaml
 mkdir -p /app/data/signal
-signal-cli --config /app/data/signal daemon --socket /tmp/signal-cli.socket &
 
-# Start a small wrapper/proxy if needed or rely on OpenClaw's direct WS.
-# Actually signal-cli daemon provides DBus by default. To use JSON-RPC over TCP/REST:
-# We need to start the signal-cli json-rpc or use signal-cli-rest-api.
+# We only need one instance: the JSON-RPC daemon over TCP
+# We need to start the signal-cli json-rpc natively over a tcp port:
 # Let's use signal-cli json-rpc natively over a tcp port:
 signal-cli --config /app/data/signal -o json --receive-mode manual daemon --tcp 127.0.0.1:8080 &
 
