@@ -12,7 +12,7 @@ class CommandParser {
         const now = new Date();
         const hh = String(now.getHours()).padStart(2, '0');
         const mm = String(now.getMinutes()).padStart(2, '0');
-        return `\n\n_${modelName} | ${durationSec}s | ${hh}:${mm}_`;
+        return `\n\n${modelName} | ${durationSec}s | ${hh}:${mm}`;
     }
 
     async processMessage(platform, sender, text) {
@@ -63,7 +63,7 @@ class CommandParser {
             const models = await KiloAPI.getTopFreeModels();
             this.lastModelList = models;
             const numbered = models.map((m, i) => `${i + 1}. ${m}`).join('\n');
-            return `*Available Free LLMs:*\n${numbered}\n\n_Current: ${this.activeModel}_\n_Use /model/[number] to switch_`;
+            return `*Available Free LLMs:*\n${numbered}\n\nCurrent: ${this.activeModel}\nUse /model/[number] to switch`;
         }
 
         if (cmd.startsWith('/model/')) {
