@@ -1,8 +1,8 @@
 # Use Alpine base image
 FROM alpine:3.21
 
-# Install Node.js, npm, Java JRE 21 (required by signal-cli 0.13.x), and utilities
-RUN apk add --no-cache nodejs npm openjdk21-jre-headless bash wget curl tzdata cronie zip unzip
+# Install Node.js, npm, Java JRE 21, glibc compat (signal-cli native lib), and utilities
+RUN apk add --no-cache nodejs npm openjdk21-jre-headless gcompat libstdc++ bash wget curl tzdata cronie zip unzip
 
 # Set working directory
 WORKDIR /app
