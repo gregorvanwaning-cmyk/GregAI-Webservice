@@ -9,10 +9,10 @@ WORKDIR /app
 
 # ---- INSTALL SIGNAL-CLI ----
 ENV SIGNAL_CLI_VERSION=0.12.6
-RUN wget https://github.com/AsamK/signal-cli/releases/download/v${SIGNAL_CLI_VERSION}/signal-cli-${SIGNAL_CLI_VERSION}-Linux.tar.gz \
-    && tar xzf signal-cli-${SIGNAL_CLI_VERSION}-Linux.tar.gz -C /opt \
+RUN wget https://github.com/AsamK/signal-cli/releases/download/v${SIGNAL_CLI_VERSION}/signal-cli-${SIGNAL_CLI_VERSION}.tar.gz \
+    && tar xzf signal-cli-${SIGNAL_CLI_VERSION}.tar.gz -C /opt \
     && ln -s /opt/signal-cli-${SIGNAL_CLI_VERSION}/bin/signal-cli /usr/bin/signal-cli \
-    && rm signal-cli-${SIGNAL_CLI_VERSION}-Linux.tar.gz
+    && rm signal-cli-${SIGNAL_CLI_VERSION}.tar.gz
 
 # ---- SETUP APP ----
 # Copy package.json and install dependencies
