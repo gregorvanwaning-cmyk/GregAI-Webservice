@@ -21,7 +21,9 @@ class SignalClient {
         let buffer = '';
 
         this.client.connect(8080, '127.0.0.1', () => {
-            console.log('[Signal] Connected to TCP socket securely.');
+            console.log('[Signal] Connected to TCP socket securely. Subscribing to incoming messages...');
+            // In JSON-RPC daemon mode, we must explicitly call "receive" to subscribe to the incoming event stream
+            this.client.write(JSON.stringify({ jsonrpc: "2.0", method: "receive", id: "receive-stream" }) + '\n');
         });
 
         this.client.on('data', async (data) => {
