@@ -4,6 +4,12 @@
 # Start Cron daemon for maintenance scripts
 crond -b
 
+echo "Checking for persistent authentication backups..."
+if [ -f "/etc/secrets/auth_backup.zip" ]; then
+    echo "Restoring authentication data from Secret File..."
+    unzip -qo /etc/secrets/auth_backup.zip -d /app/
+fi
+
 echo "Starting Signal-CLI REST API (Daemon mode) limited to 128MB..."
 # We map the persistent volume to `/app/signal_data` in render.yaml
 mkdir -p /app/data/signal

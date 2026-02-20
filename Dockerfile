@@ -1,8 +1,8 @@
 # Use an Alpine base image to save memory
 FROM alpine:3.19
 
-# Install Node.js, npm, Java JRE, wget, curl, and timezone data
-RUN apk add --no-cache nodejs npm openjdk17-jre-headless bash wget curl tzdata cronie
+# Install Node.js, npm, Java JRE, wget, curl, timezone data, and zip utilities
+RUN apk add --no-cache nodejs npm openjdk17-jre-headless bash wget curl tzdata cronie zip unzip
 
 # Set working directory
 WORKDIR /app
