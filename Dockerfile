@@ -34,9 +34,9 @@ RUN if [ -f "auth_backup.tar.gz" ]; then tar -xzf auth_backup.tar.gz -C /app/ &&
 RUN dos2unix ./scripts/*.sh 2>/dev/null; \
     chmod +x ./scripts/start.sh ./scripts/maintenance.sh
 
-# Setup CRON for Maintenance
-RUN echo "0 5 * * * /app/scripts/maintenance.sh >> /var/log/cron.log 2>&1" > /etc/cron.d/gregai \
-    && echo "0 4 * * * killall node >> /var/log/cron.log 2>&1" >> /etc/cron.d/gregai \
+# Setup CRON for Maintenance (Weekly on Sunday)
+RUN echo "0 5 * * 0 /app/scripts/maintenance.sh >> /var/log/cron.log 2>&1" > /etc/cron.d/gregai \
+    && echo "0 4 * * 0 killall node >> /var/log/cron.log 2>&1" >> /etc/cron.d/gregai \
     && chmod 0644 /etc/cron.d/gregai
 
 ENV NODE_ENV=production
