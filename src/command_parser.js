@@ -30,10 +30,12 @@ class CommandParser {
                 this.isSleeping = false;
                 return "GregAI is now awake and ready to assist.";
             } else if (cmd === '/restart') {
-                // Return special flag for router to handle
                 return { action: 'RESTART' };
+            } else if (cmd === '/help') {
+                // Allow /help even while sleeping
+            } else {
+                return null; // Ignore everything else
             }
-            return null; // Ignore everything else
         }
 
         // --- Commands ---
