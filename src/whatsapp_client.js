@@ -8,10 +8,21 @@ class WhatsAppClient {
         this.routerCallback = routerCallback;
         this.sock = null;
         this.msgRetryCounterCache = new NodeCache();
+        this._baileys = null; // Cache the ESM import
     }
 
+    /**
+     * Create (or recreate) the Baileys socket and bind its events.
+     * On reconnect we call _createSocket() instead of start() to avoid
+     * stacking duplicate event listeners.
+     */
     async start() {
-        const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = await import('@whiskeysockets/baileys');
+        this._baileys = await import('@whiskeysockets/baileys');
+        await this._createSocket();
+    }
+
+    async _createSocket() {
+        const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = this._baileys;
         const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
 
         this.sock = makeWASocket({
@@ -19,7 +30,7 @@ class WhatsAppClient {
             printQRInTerminal: false,
             logger: pino({ level: 'silent' }),
             msgRetryCounterCache: this.msgRetryCounterCache,
-            browser: ['Ubuntu', 'Chrome', '20.0.04'], // Specifically required browser sig for pairing codes
+            browser: ['Ubuntu', 'Chrome', '20.0.04'],
             syncFullHistory: false
         });
 
@@ -42,6 +53,7 @@ class WhatsAppClient {
             }
         }
 
+        // --- Bind events fresh for THIS socket instance ---
         this.sock.ev.on('creds.update', saveCreds);
 
         this.sock.ev.on('connection.update', (update) => {
@@ -53,10 +65,12 @@ class WhatsAppClient {
             }
 
             if (connection === 'close') {
-                const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-                console.log(`[WhatsApp] Connection closed. Reconnecting: ${shouldReconnect}`);
+                const statusCode = lastDisconnect?.error?.output?.statusCode;
+                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+                console.log(`[WhatsApp] Connection closed (code: ${statusCode}). Reconnecting: ${shouldReconnect}`);
                 if (shouldReconnect) {
-                    this.start();
+                    // Reconnect by creating a NEW socket — NOT calling start() again
+                    setTimeout(() => this._createSocket(), 2000);
                 } else {
                     console.log('[WhatsApp] Logged out. Delete auth_info_baileys and restart to scan QR.');
                 }
@@ -69,12 +83,10 @@ class WhatsAppClient {
             if (m.type !== 'notify') return;
             const msg = m.messages[0];
 
-            // Ignore status messages and group messages (optional, here we only check self)
             if (!msg.message || msg.key.fromMe) return;
 
             const sender = msg.key.remoteJid;
 
-            // Extract text body
             const messageType = Object.keys(msg.message)[0];
             let text = '';
 
@@ -83,7 +95,7 @@ class WhatsAppClient {
             } else if (messageType === 'extendedTextMessage') {
                 text = msg.message.extendedTextMessage.text;
             } else {
-                return; // Not a text message
+                return;
             }
 
             console.log(`[WhatsApp] Received from ${sender}: ${text}`);
