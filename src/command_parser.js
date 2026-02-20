@@ -12,7 +12,8 @@ class CommandParser {
         const now = new Date();
         const hh = String(now.getHours()).padStart(2, '0');
         const mm = String(now.getMinutes()).padStart(2, '0');
-        return `\n\n${modelName} | ${durationSec}s | ${hh}:${mm}`;
+        const shortName = modelName.includes('/') ? modelName.split('/').pop() : modelName;
+        return `\n\n${shortName} | ${durationSec}s | ${hh}:${mm}`;
     }
 
     async processMessage(platform, sender, text) {
