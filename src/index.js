@@ -20,8 +20,12 @@ async function restartServices() {
 const routerCallback = async (platform, sender, messageText) => {
     try {
         const response = await CommandParser.processMessage(platform, sender, messageText);
+        console.log(`[Router] Parser returned response:`, !!response ? 'YES' : 'NO');
 
-        if (!response) return; // Ignore if sleep mode without wakeup
+        if (!response) {
+            console.log(`[Router] Ignoring message: Sleep mode active or no action required.`);
+            return;
+        }
 
         if (response.action === 'RESTART') {
             const msg = "Restarting GregAI services...";
@@ -37,8 +41,10 @@ const routerCallback = async (platform, sender, messageText) => {
         // Send back response natively
         if (platform === 'whatsapp') {
             await whatsapp.sendMessage(sender, response);
+            console.log(`[Router] Successfully dispatched WhatsApp reply to ${sender}`);
         } else if (platform === 'signal') {
             await signal.sendMessage(sender, response);
+            console.log(`[Router] Successfully dispatched Signal reply to ${sender}`);
         }
 
     } catch (e) {

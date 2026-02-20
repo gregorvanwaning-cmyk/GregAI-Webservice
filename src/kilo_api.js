@@ -4,6 +4,9 @@ class KiloAPI {
     constructor() {
         this.apiKey = process.env.KILO_API_KEY;
         this.baseUrl = 'https://api.kilocode.com/v1'; // Assuming standard OpenAI-compatible URL structure for Kilo
+        if (!this.apiKey) {
+            console.warn('[KiloAPI] WARNING: KILO_API_KEY environment variable is not set!');
+        }
     }
 
     async getTopFreeModels() {
@@ -46,8 +49,10 @@ class KiloAPI {
             const resultText = response.data.choices[0].message.content;
             return { text: resultText, durationSec };
         } catch (error) {
-            console.error('[KiloAPI] Query Error:', error?.response?.data || error.message);
-            return { text: `[Error: Failed to fetch response from ${modelName}]`, durationSec: 0 };
+            const status = error?.response?.status;
+            const errorMsg = error?.response?.data || error.message;
+            console.error(`[KiloAPI] Query Error [HTTP ${status || 'N/A'}]:`, JSON.stringify(errorMsg));
+            return { text: `⚠️ Error: Could not reach AI backend. (HTTP ${status || 'Unknown'})`, durationSec: 0 };
         }
     }
 }
