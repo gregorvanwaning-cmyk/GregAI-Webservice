@@ -9,6 +9,7 @@ class WhatsAppClient {
         this.sock = null;
         this.msgRetryCounterCache = new NodeCache();
         this._baileys = null; // Cache the ESM import
+        this.processedMessages = []; // Track recently processed msg IDs to prevent duplicates
     }
 
     /**
@@ -84,6 +85,17 @@ class WhatsAppClient {
             const msg = m.messages[0];
 
             if (!msg.message || msg.key.fromMe) return;
+
+            // ---- Deduplication Check ----
+            const msgId = msg.key.id;
+            if (this.processedMessages.includes(msgId)) {
+                return; // Already processed this message
+            }
+            this.processedMessages.push(msgId);
+            if (this.processedMessages.length > 100) {
+                this.processedMessages.shift(); // Keep only the last 100 IDs
+            }
+            // -----------------------------
 
             const remoteJid = msg.key.remoteJid;
             // The actual sender phone is in participant for groups/LID, otherwise it's just the remoteJid

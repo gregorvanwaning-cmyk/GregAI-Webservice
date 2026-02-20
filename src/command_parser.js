@@ -78,6 +78,11 @@ class CommandParser {
         if (cmd.startsWith('/model/')) {
             const requested = cmd.replace('/model/', '').trim();
 
+            // Ensure we have the model list cached
+            if (this.lastModelList.length === 0) {
+                this.lastModelList = await KiloAPI.getTopFreeModels();
+            }
+
             // Support numeric selection (e.g. /model/3)
             const num = parseInt(requested, 10);
             if (!isNaN(num) && num >= 1 && num <= this.lastModelList.length) {
@@ -86,8 +91,7 @@ class CommandParser {
             }
 
             // Fallback: match by partial name
-            const models = this.lastModelList.length > 0 ? this.lastModelList : await KiloAPI.getTopFreeModels();
-            const match = models.find(m => m.toLowerCase().includes(requested.toLowerCase()));
+            const match = this.lastModelList.find(m => m.toLowerCase().includes(requested.toLowerCase()));
 
             if (match) {
                 this.activeModel = match;
