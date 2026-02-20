@@ -5,6 +5,7 @@ class CommandParser {
         this.activeModel = "minimax/minimax-m2.5:free";
         this.systemPrompt = "You are GregAI, a helpful, efficient and concise AI assistant.";
         this.isSleeping = false;
+        this.lastModelList = []; // Cache for numbered model selection
     }
 
     getTimestampFooter(modelName, durationSec) {
@@ -47,8 +48,8 @@ class CommandParser {
 
         if (cmd === '/help') {
             return "🛠️ *GregAI Commands:*\n" +
-                "/models - List top 5 available free LLMs\n" +
-                "/model/[name] - Switch to a specific LLM\n" +
+                "/models - List available free LLMs\n" +
+                "/model/[number] - Switch LLM by number from list\n" +
                 "/systemprompt/[prompt] - Change the AI's behavior\n" +
                 "/sleep - Put the AI into sleep mode (ignores messages)\n" +
                 "/wakeup - Wake up the AI from sleep mode\n" +
@@ -58,19 +59,30 @@ class CommandParser {
 
         if (cmd === '/models') {
             const models = await KiloAPI.getTopFreeModels();
-            return "*Available Free LLMs:*\n- " + models.join('\n- ');
+            this.lastModelList = models;
+            const numbered = models.map((m, i) => `${i + 1}. ${m}`).join('\n');
+            return `*Available Free LLMs:*\n${numbered}\n\n_Current: ${this.activeModel}_\n_Use /model/[number] to switch_`;
         }
 
         if (cmd.startsWith('/model/')) {
-            const requested = cmd.replace('/model/', '').trim().toLowerCase();
-            const models = await KiloAPI.getTopFreeModels();
-            const match = models.find(m => m.toLowerCase().includes(requested));
+            const requested = cmd.replace('/model/', '').trim();
+
+            // Support numeric selection (e.g. /model/3)
+            const num = parseInt(requested, 10);
+            if (!isNaN(num) && num >= 1 && num <= this.lastModelList.length) {
+                this.activeModel = this.lastModelList[num - 1];
+                return `✅ Switched to model: ${this.activeModel}`;
+            }
+
+            // Fallback: match by partial name
+            const models = this.lastModelList.length > 0 ? this.lastModelList : await KiloAPI.getTopFreeModels();
+            const match = models.find(m => m.toLowerCase().includes(requested.toLowerCase()));
 
             if (match) {
                 this.activeModel = match;
-                return `Successfully switched to model: ${match}`;
+                return `✅ Switched to model: ${match}`;
             } else {
-                return `Could not find a free model matching "${requested}". Use /models to see the list.`;
+                return `❌ No model matching "${requested}". Use /models to see the numbered list.`;
             }
         }
 

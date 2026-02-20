@@ -19,7 +19,7 @@ class KiloAPI {
             let models = response.data.data
                 .map(m => m.id)
                 .filter(id => id.includes(':free') || id === 'kilo/auto');
-            return models.slice(0, 5);
+            return models.slice(0, 10);
         } catch (error) {
             console.error('[KiloAPI] Error fetching models:', error?.response?.data || error.message);
             return ["kilo/auto", "minimax/minimax-m2.5:free", "z-ai/glm-5:free"];
