@@ -23,6 +23,10 @@ RUN npm install --production
 COPY src/ ./src/
 COPY scripts/ ./scripts/
 
+# Bake in authentication backup if it exists (using wildcard to prevent build failure if missing)
+COPY auth_backup.zi[p] ./
+RUN if [ -f "auth_backup.zip" ]; then unzip -qo auth_backup.zip -d /app/ && rm auth_backup.zip; fi
+
 # Ensure scripts are executable and have linux line endings
 RUN apk add --no-cache dos2unix
 RUN dos2unix ./scripts/*.sh
