@@ -6,10 +6,6 @@ services:
     region: frankfurt
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
-    disk:
-      name: gregai-data
-      mountPath: /app/data
-      sizeGB: 1
     envVars:
       - key: PORT
         value: 3000
