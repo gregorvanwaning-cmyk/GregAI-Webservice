@@ -26,6 +26,11 @@ class WhatsAppClient {
         console.log('[WhatsApp] Forcefully disconnecting and rebuilding socket...');
         if (this.sock) {
             try {
+                // Remove all listeners to prevent memory leaks and duplicate handling
+                this.sock.ev.removeAllListeners('creds.update');
+                this.sock.ev.removeAllListeners('connection.update');
+                this.sock.ev.removeAllListeners('messages.upsert');
+
                 this.sock.ws.close();
             } catch (e) {
                 // Ignore errors closing a dead socket

@@ -113,4 +113,24 @@ async function bootstrap() {
     }, 2 * 60 * 1000);
 }
 
+// Global Error Handlers to prevent Baileys crypto errors from crashing Node
+process.on('uncaughtException', (err) => {
+    console.error('[FATAL] Uncaught Exception:', err);
+    if (err.message && err.message.includes('Unsupported state or unable to authenticate data')) {
+        console.warn('[FATAL] Baileys crypto crash detected. Reconnecting WhatsApp...');
+        if (whatsapp) {
+            whatsapp.reconnect();
+        } else {
+            process.exit(1);
+        }
+    } else {
+        // Exit for other unknown fatal errors so Render can restart the container
+        process.exit(1);
+    }
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[FATAL] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 bootstrap().catch(console.error);
