@@ -85,7 +85,9 @@ class WhatsAppClient {
 
             if (!msg.message || msg.key.fromMe) return;
 
-            const sender = msg.key.remoteJid;
+            const remoteJid = msg.key.remoteJid;
+            // The actual sender phone is in participant for groups/LID, otherwise it's just the remoteJid
+            const senderPhone = msg.participant || msg.key.remoteJid;
 
             const messageType = Object.keys(msg.message)[0];
             let text = '';
@@ -98,10 +100,14 @@ class WhatsAppClient {
                 return;
             }
 
-            console.log(`[WhatsApp] Received from ${sender}: ${text}`);
+            console.log(`[WhatsApp] Received from ${senderPhone} (JID: ${remoteJid}): ${text}`);
 
             if (this.routerCallback) {
-                await this.routerCallback('whatsapp', sender, text);
+                // We pass BOTH the reply target (remoteJid) and the actual identity (senderPhone)
+                // We format sender to "remoteJid::senderPhone" so the router can reply to the right place
+                // but still check the real phone number for admin rights.
+                const senderIdentity = `${remoteJid}::${senderPhone}`;
+                await this.routerCallback('whatsapp', senderIdentity, text);
             }
         });
     }

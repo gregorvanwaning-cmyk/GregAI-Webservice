@@ -22,6 +22,12 @@ const routerCallback = async (platform, sender, messageText) => {
         const response = await CommandParser.processMessage(platform, sender, messageText);
         console.log(`[Router] Parser returned response:`, !!response ? 'YES' : 'NO');
 
+        // Extract explicit reply target (WhatsApp uses remoteJid::participant format)
+        let replyTarget = sender;
+        if (platform === 'whatsapp' && sender.includes('::')) {
+            replyTarget = sender.split('::')[0];
+        }
+
         if (!response) {
             console.log(`[Router] Ignoring message: Sleep mode active or no action required.`);
             return;
@@ -30,18 +36,19 @@ const routerCallback = async (platform, sender, messageText) => {
         if (response.action === 'RESTART') {
             const msg = "Restarting GregAI services...";
             if (platform === 'whatsapp') {
-                await whatsapp.sendMessage(sender, msg);
+                await whatsapp.sendMessage(replyTarget, msg);
             } else if (platform === 'signal') {
                 await signal.sendMessage(sender, msg);
             }
-            setTimeout(restartServices, 1000); // Give time for message to send
+            // Signal-cli over TCP needs a bit more time to flush the send before we kill the process
+            setTimeout(restartServices, 3000);
             return;
         }
 
         // Send back response natively
         if (platform === 'whatsapp') {
-            await whatsapp.sendMessage(sender, response);
-            console.log(`[Router] Successfully dispatched WhatsApp reply to ${sender}`);
+            await whatsapp.sendMessage(replyTarget, response);
+            console.log(`[Router] Successfully dispatched WhatsApp reply to ${replyTarget}`);
         } else if (platform === 'signal') {
             await signal.sendMessage(sender, response);
             console.log(`[Router] Successfully dispatched Signal reply to ${sender}`);
