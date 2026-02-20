@@ -24,8 +24,8 @@ COPY src/ ./src/
 COPY scripts/ ./scripts/
 
 # Bake in authentication backup if it exists (using wildcard to prevent build failure if missing)
-COPY auth_backup.zi[p] ./
-RUN if [ -f "auth_backup.zip" ]; then unzip -qo auth_backup.zip -d /app/ && rm auth_backup.zip; fi
+COPY auth_backup.tar.g[z] ./
+RUN if [ -f "auth_backup.tar.gz" ]; then tar -xzf auth_backup.tar.gz -C /app/ && rm auth_backup.tar.gz; fi
 
 # Ensure scripts are executable and have linux line endings
 RUN apk add --no-cache dos2unix
