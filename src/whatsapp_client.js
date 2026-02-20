@@ -10,6 +10,8 @@ class WhatsAppClient {
         this.msgRetryCounterCache = new NodeCache();
         this._baileys = null; // Cache the ESM import
         this.processedMessages = []; // Track recently processed msg IDs to prevent duplicates
+        this.isReconnecting = false;
+        this.reconnectAttempts = 0;
     }
 
     /**
@@ -22,123 +24,148 @@ class WhatsAppClient {
         await this._createSocket();
     }
 
+    _nextDelay() {
+        // Exponential backoff: 5s, 10s, 20s, 40s, capped at 60s
+        const delay = Math.min(5000 * Math.pow(2, this.reconnectAttempts), 60000);
+        this.reconnectAttempts++;
+        return delay;
+    }
+
     async reconnect() {
-        console.log('[WhatsApp] Forcefully disconnecting and rebuilding socket...');
+        if (this.isReconnecting) {
+            console.log('[WhatsApp] Reconnect already in progress...');
+            return;
+        }
+        this.isReconnecting = true;
+
+        const delay = this._nextDelay();
+        console.log(`[WhatsApp] Forcefully disconnecting. Will rebuild in ${delay / 1000}s (attempt #${this.reconnectAttempts})...`);
         if (this.sock) {
             try {
-                // Remove all listeners to prevent memory leaks and duplicate handling
                 this.sock.ev.removeAllListeners('creds.update');
                 this.sock.ev.removeAllListeners('connection.update');
                 this.sock.ev.removeAllListeners('messages.upsert');
-
-                this.sock.ws.close();
+                if (this.sock.ws) this.sock.ws.close();
             } catch (e) {
                 // Ignore errors closing a dead socket
             }
         }
-        setTimeout(() => this._createSocket(), 2000);
+        setTimeout(() => this._createSocket(), delay);
     }
 
     async _createSocket() {
-        const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = this._baileys;
-        const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
+        try {
+            const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = this._baileys;
+            const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
 
-        this.sock = makeWASocket({
-            auth: state,
-            printQRInTerminal: false,
-            logger: pino({ level: 'silent' }),
-            msgRetryCounterCache: this.msgRetryCounterCache,
-            browser: ['Ubuntu', 'Chrome', '20.0.04'],
-            syncFullHistory: false
-        });
+            this.sock = makeWASocket({
+                auth: state,
+                printQRInTerminal: false,
+                logger: pino({ level: 'silent' }),
+                msgRetryCounterCache: this.msgRetryCounterCache,
+                browser: ['Ubuntu', 'Chrome', '20.0.04'],
+                syncFullHistory: false
+            });
 
-        if (!this.sock.authState.creds.registered) {
-            const phoneNumber = process.env.WHATSAPP_PHONE?.replace(/[^0-9]/g, '');
-            if (phoneNumber) {
-                setTimeout(async () => {
-                    try {
-                        let code = await this.sock.requestPairingCode(phoneNumber);
-                        code = code?.match(/.{1,4}/g)?.join('-');
-                        fs.writeFileSync('pairing_code.txt', code || 'FAILED');
-                        console.log(`\n======================================================`);
-                        console.log(`[WhatsApp] PAIRING CODE: ${code}`);
-                        console.log(`[WhatsApp] Go to WhatsApp -> Linked Devices -> Link with Phone Number`);
-                        console.log(`======================================================\n`);
-                    } catch (e) {
-                        console.error('[WhatsApp] Failed to request pairing code:', e);
-                    }
-                }, 3000);
-            }
-        }
-
-        // --- Bind events fresh for THIS socket instance ---
-        this.sock.ev.on('creds.update', saveCreds);
-
-        this.sock.ev.on('connection.update', (update) => {
-            const { connection, lastDisconnect, qr } = update;
-
-            if (qr && !process.env.WHATSAPP_PHONE) {
-                console.log('[WhatsApp] Action Required: Scan the QR code below:');
-                qrcode.generate(qr, { small: true });
-            }
-
-            if (connection === 'close') {
-                const statusCode = lastDisconnect?.error?.output?.statusCode;
-                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-                console.log(`[WhatsApp] Connection closed (code: ${statusCode}). Reconnecting: ${shouldReconnect}`);
-                if (shouldReconnect) {
-                    // Reconnect by creating a NEW socket — NOT calling start() again
-                    setTimeout(() => this._createSocket(), 2000);
-                } else {
-                    console.log('[WhatsApp] Logged out. Delete auth_info_baileys and restart to scan QR.');
+            if (!this.sock.authState.creds.registered) {
+                const phoneNumber = process.env.WHATSAPP_PHONE?.replace(/[^0-9]/g, '');
+                if (phoneNumber) {
+                    setTimeout(async () => {
+                        try {
+                            let code = await this.sock.requestPairingCode(phoneNumber);
+                            code = code?.match(/.{1,4}/g)?.join('-');
+                            fs.writeFileSync('pairing_code.txt', code || 'FAILED');
+                            console.log(`\n======================================================`);
+                            console.log(`[WhatsApp] PAIRING CODE: ${code}`);
+                            console.log(`[WhatsApp] Go to WhatsApp -> Linked Devices -> Link with Phone Number`);
+                            console.log(`======================================================\n`);
+                        } catch (e) {
+                            console.error('[WhatsApp] Failed to request pairing code:', e);
+                        }
+                    }, 3000);
                 }
-            } else if (connection === 'open') {
-                console.log('[WhatsApp] Connected securely.');
-            }
-        });
-
-        this.sock.ev.on('messages.upsert', async (m) => {
-            if (m.type !== 'notify') return;
-            const msg = m.messages[0];
-
-            if (!msg.message || msg.key.fromMe) return;
-
-            // ---- Deduplication Check ----
-            const msgId = msg.key.id;
-            if (this.processedMessages.includes(msgId)) {
-                return; // Already processed this message
-            }
-            this.processedMessages.push(msgId);
-            if (this.processedMessages.length > 100) {
-                this.processedMessages.shift(); // Keep only the last 100 IDs
-            }
-            // -----------------------------
-
-            const remoteJid = msg.key.remoteJid;
-            // The actual sender phone is in participant for groups/LID, otherwise it's just the remoteJid
-            const senderPhone = msg.participant || msg.key.remoteJid;
-
-            const messageType = Object.keys(msg.message)[0];
-            let text = '';
-
-            if (messageType === 'conversation') {
-                text = msg.message.conversation;
-            } else if (messageType === 'extendedTextMessage') {
-                text = msg.message.extendedTextMessage.text;
-            } else {
-                return;
             }
 
-            console.log(`[WhatsApp] Received from ${senderPhone} (JID: ${remoteJid}): ${text}`);
+            // --- Bind events fresh for THIS socket instance ---
+            this.sock.ev.on('creds.update', saveCreds);
 
-            if (this.routerCallback) {
-                // We pass BOTH the reply target (remoteJid) and the actual identity (senderPhone)
-                // We format sender to "remoteJid::senderPhone" so the router can reply to the right place
-                // but still check the real phone number for admin rights.
-                const senderIdentity = `${remoteJid}::${senderPhone}`;
-                await this.routerCallback('whatsapp', senderIdentity, text);
-            }
-        });
+            this.sock.ev.on('connection.update', (update) => {
+                const { connection, lastDisconnect, qr } = update;
+
+                if (qr && !process.env.WHATSAPP_PHONE) {
+                    console.log('[WhatsApp] Action Required: Scan the QR code below:');
+                    qrcode.generate(qr, { small: true });
+                }
+
+                if (connection === 'close') {
+                    const statusCode = lastDisconnect?.error?.output?.statusCode;
+                    const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+                    console.log(`[WhatsApp] Connection closed (code: ${statusCode}). Reconnecting: ${shouldReconnect}`);
+                    if (shouldReconnect) {
+                        if (!this.isReconnecting) {
+                            this.isReconnecting = true;
+                            const delay = this._nextDelay();
+                            console.log(`[WhatsApp] Scheduling reconnect in ${delay / 1000}s (attempt #${this.reconnectAttempts})...`);
+                            setTimeout(() => this._createSocket(), delay);
+                        }
+                    } else {
+                        console.log('[WhatsApp] Logged out. Delete auth_info_baileys and restart to scan QR.');
+                    }
+                } else if (connection === 'open') {
+                    console.log('[WhatsApp] Connected securely.');
+                    // Reset backoff on successful connection
+                    this.reconnectAttempts = 0;
+                }
+            });
+
+            this.sock.ev.on('messages.upsert', async (m) => {
+                if (m.type !== 'notify') return;
+                const msg = m.messages[0];
+
+                if (!msg.message || msg.key.fromMe) return;
+
+                // ---- Deduplication Check ----
+                const msgId = msg.key.id;
+                if (this.processedMessages.includes(msgId)) {
+                    return; // Already processed this message
+                }
+                this.processedMessages.push(msgId);
+                if (this.processedMessages.length > 100) {
+                    this.processedMessages.shift(); // Keep only the last 100 IDs
+                }
+                // -----------------------------
+
+                const remoteJid = msg.key.remoteJid;
+                // The actual sender phone is in participant for groups/LID, otherwise it's just the remoteJid
+                const senderPhone = msg.participant || msg.key.remoteJid;
+
+                const messageType = Object.keys(msg.message)[0];
+                let text = '';
+
+                if (messageType === 'conversation') {
+                    text = msg.message.conversation;
+                } else if (messageType === 'extendedTextMessage') {
+                    text = msg.message.extendedTextMessage.text;
+                } else {
+                    return;
+                }
+
+                console.log(`[WhatsApp] Received from ${senderPhone} (JID: ${remoteJid}): ${text}`);
+
+                if (this.routerCallback) {
+                    // We pass BOTH the reply target (remoteJid) and the actual identity (senderPhone)
+                    // We format sender to "remoteJid::senderPhone" so the router can reply to the right place
+                    // but still check the real phone number for admin rights.
+                    const senderIdentity = `${remoteJid}::${senderPhone}`;
+                    await this.routerCallback('whatsapp', senderIdentity, text);
+                }
+            });
+
+            this.isReconnecting = false;
+        } catch (e) {
+            console.error('[WhatsApp] Reconnect fatal error:', e.message);
+            this.isReconnecting = false;
+        }
     }
 
     async sendMessage(recipientJid, text) {
