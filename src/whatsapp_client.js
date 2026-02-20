@@ -100,8 +100,10 @@ class WhatsAppClient {
             return;
         }
 
+        const normalizedJid = recipientJid.split(':')[0].replace(/@.*$/, '') + '@s.whatsapp.net';
+
         try {
-            const sendPromise = this.sock.sendMessage(recipientJid, { text: text });
+            const sendPromise = this.sock.sendMessage(normalizedJid, { text: text });
 
             // Defend against silent Baileys Promise hangs by wrapping in a 5-second timeout
             const timeoutPromise = new Promise((_, reject) => {
@@ -109,9 +111,9 @@ class WhatsAppClient {
             });
 
             await Promise.race([sendPromise, timeoutPromise]);
-            console.log(`[WhatsApp] Successfully returned HTTP ACK for sent message to ${recipientJid}`);
+            console.log(`[WhatsApp] Successfully returned HTTP ACK for sent message to ${normalizedJid}`);
         } catch (error) {
-            console.error(`[WhatsApp] Send error to ${recipientJid}:`, error.message || error);
+            console.error(`[WhatsApp] Send error to ${normalizedJid}:`, error.message || error);
         }
     }
 }
