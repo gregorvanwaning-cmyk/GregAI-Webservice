@@ -12,7 +12,8 @@ class KiloAPI {
     async getTopFreeModels() {
         try {
             const response = await axios.get(`${this.baseUrl}/models`, {
-                headers: { 'Authorization': `Bearer ${this.apiKey}` }
+                headers: { 'Authorization': `Bearer ${this.apiKey}` },
+                timeout: 30000
             });
 
             // Filter to only free models (those with ':free' suffix or 'kilo/auto')
@@ -40,7 +41,8 @@ class KiloAPI {
 
             const startTime = Date.now();
             const response = await axios.post(`${this.baseUrl}/chat/completions`, requestBody, {
-                headers: { 'Authorization': `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' }
+                headers: { 'Authorization': `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
+                timeout: 30000
             });
             const durationSec = Math.round((Date.now() - startTime) / 1000);
 

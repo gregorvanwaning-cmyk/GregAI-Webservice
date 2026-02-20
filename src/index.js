@@ -87,13 +87,24 @@ async function bootstrap() {
     // We check health every 2 minutes. If it's dead, we restart the whole container.
     setInterval(async () => {
         try {
-            if (whatsapp && whatsapp.sock) {
-                // Presence update is a lightweight API call to verify the socket is alive
-                // Wrap in timeout because a dead socket might hang indefinitely
-                await Promise.race([
-                    whatsapp.sock.sendPresenceUpdate('available'),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), 10000))
-                ]);
+            if (whatsapp && whatsapp.sock && whatsapp.sock.ws) {
+                // To strictly verify a WebSocket is alive, we must ping and wait for a pong.
+                // sendPresenceUpdate resolves instantly (it just queues locally), so it was bypassing the timeout.
+                await new Promise((resolve, reject) => {
+                    const ws = whatsapp.sock.ws;
+
+                    // If ws is somehow already in a closed state
+                    if (ws.readyState !== 1) return reject(new Error('WS_NOT_OPEN'));
+
+                    let timeout = setTimeout(() => reject(new Error('TIMEOUT')), 10000);
+
+                    ws.once('pong', () => {
+                        clearTimeout(timeout);
+                        resolve();
+                    });
+
+                    ws.ping();
+                });
             }
         } catch (e) {
             console.error(`[Monitor] WhatsApp connection appears DEAD! Rebuilding socket...`, e.message);
