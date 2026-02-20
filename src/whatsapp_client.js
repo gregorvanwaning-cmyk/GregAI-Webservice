@@ -112,20 +112,21 @@ class WhatsAppClient {
             return;
         }
 
-        const normalizedJid = recipientJid.split(':')[0].replace(/@.*$/, '') + '@s.whatsapp.net';
+        // Do NOT normalize @lid JIDs — Baileys routes them correctly internally.
+        // Converting @lid to @s.whatsapp.net sends replies to the WRONG person.
+        console.log(`[WhatsApp] Sending reply to: ${recipientJid}`);
 
         try {
-            const sendPromise = this.sock.sendMessage(normalizedJid, { text: text });
+            const sendPromise = this.sock.sendMessage(recipientJid, { text: text });
 
-            // Defend against silent Baileys Promise hangs by wrapping in a 5-second timeout
             const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('TIMEOUT: WhatsApp server did not acknowledge message dispatch within 5 seconds')), 5000);
+                setTimeout(() => reject(new Error('TIMEOUT: WhatsApp send not acknowledged within 10s')), 10000);
             });
 
             await Promise.race([sendPromise, timeoutPromise]);
-            console.log(`[WhatsApp] Successfully returned HTTP ACK for sent message to ${normalizedJid}`);
+            console.log(`[WhatsApp] Message delivered to ${recipientJid}`);
         } catch (error) {
-            console.error(`[WhatsApp] Send error to ${normalizedJid}:`, error.message || error);
+            console.error(`[WhatsApp] Send error to ${recipientJid}:`, error.message || error);
         }
     }
 }
