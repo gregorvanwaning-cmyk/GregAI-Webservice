@@ -34,7 +34,6 @@ echo "=============================================="
 signal-cli \
     --config /app/data/signal \
     -o json \
-    --receive-mode manual \
     daemon --tcp 127.0.0.1:8080 \
     > /app/signal-cli.log 2>&1 &
 SIGNAL_PID=$!
