@@ -81,6 +81,25 @@ async function bootstrap() {
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`[Router] HTTP Server listening on port ${PORT}`);
     });
+
+    // --- Connection Monitor (Silent Drop Protection) ---
+    // Baileys sometimes silently drops the connection without emitting a 'close' event.
+    // We check health every 2 minutes. If it's dead, we restart the whole container.
+    setInterval(async () => {
+        try {
+            if (whatsapp && whatsapp.sock) {
+                // Presence update is a lightweight API call to verify the socket is alive
+                // Wrap in timeout because a dead socket might hang indefinitely
+                await Promise.race([
+                    whatsapp.sock.sendPresenceUpdate('available'),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), 10000))
+                ]);
+            }
+        } catch (e) {
+            console.error(`[Monitor] WhatsApp connection appears DEAD! Triggering restart...`, e.message);
+            restartServices();
+        }
+    }, 2 * 60 * 1000);
 }
 
 bootstrap().catch(console.error);
