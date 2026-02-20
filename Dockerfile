@@ -1,14 +1,14 @@
-# Use an Alpine base image to save memory
-FROM alpine:3.19
+# Use Alpine base image
+FROM alpine:3.21
 
-# Install Node.js, npm, Java JRE, wget, curl, timezone data, and zip utilities
-RUN apk add --no-cache nodejs npm openjdk17-jre-headless bash wget curl tzdata cronie zip unzip
+# Install Node.js, npm, Java JRE 21 (required by signal-cli 0.13.x), and utilities
+RUN apk add --no-cache nodejs npm openjdk21-jre-headless bash wget curl tzdata cronie zip unzip
 
 # Set working directory
 WORKDIR /app
 
 # ---- INSTALL SIGNAL-CLI ----
-ENV SIGNAL_CLI_VERSION=0.12.6
+ENV SIGNAL_CLI_VERSION=0.13.22
 RUN wget https://github.com/AsamK/signal-cli/releases/download/v${SIGNAL_CLI_VERSION}/signal-cli-${SIGNAL_CLI_VERSION}.tar.gz \
     && tar xzf signal-cli-${SIGNAL_CLI_VERSION}.tar.gz -C /opt \
     && ln -s /opt/signal-cli-${SIGNAL_CLI_VERSION}/bin/signal-cli /usr/bin/signal-cli \
