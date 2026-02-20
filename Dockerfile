@@ -13,8 +13,13 @@ WORKDIR /app
 ENV SIGNAL_CLI_VERSION=0.13.22
 RUN wget -q https://github.com/AsamK/signal-cli/releases/download/v${SIGNAL_CLI_VERSION}/signal-cli-${SIGNAL_CLI_VERSION}-Linux-native.tar.gz \
     && tar xzf signal-cli-${SIGNAL_CLI_VERSION}-Linux-native.tar.gz -C /opt \
-    && ln -s /opt/signal-cli-${SIGNAL_CLI_VERSION}-Linux-native/bin/signal-cli /usr/bin/signal-cli \
-    && rm signal-cli-${SIGNAL_CLI_VERSION}-Linux-native.tar.gz
+    && rm signal-cli-${SIGNAL_CLI_VERSION}-Linux-native.tar.gz \
+    && echo "Extracted contents:" && ls -la /opt/ \
+    && SIGNAL_BIN=$(find /opt -name "signal-cli" -type f | head -1) \
+    && echo "Found signal-cli at: $SIGNAL_BIN" \
+    && ln -sf "$SIGNAL_BIN" /usr/bin/signal-cli \
+    && chmod +x /usr/bin/signal-cli \
+    && signal-cli --version
 
 # ---- SETUP APP ----
 COPY package*.json ./
