@@ -1,12 +1,12 @@
-const WebSocket = require('ws');
-const axios = require('axios');
+const net = require('net');
 
 class SignalClient {
     constructor(routerCallback) {
-        this.signalUrl = process.env.SIGNAL_URL || 'http://127.0.0.1:8080';
         this.signalPhone = process.env.SIGNAL_PHONE || '+31649649017';
         this.routerCallback = routerCallback;
-        this.ws = null;
+        this.client = null;
+        this.requestId = 0;
+        this.pendingRequests = new Map();
     }
 
     start() {
@@ -15,66 +15,102 @@ class SignalClient {
             return;
         }
 
-        const wsUrl = this.signalUrl.replace('http', 'ws') + '/v1/receive/' + this.signalPhone;
-        console.log(`[Signal] Connecting to WS: ${wsUrl}`);
+        console.log(`[Signal] Connecting to raw JSON-RPC TCP socket at 127.0.0.1:8080`);
+        this.client = new net.Socket();
 
-        this.ws = new WebSocket(wsUrl);
+        let buffer = '';
 
-        this.ws.on('open', () => {
-            console.log('[Signal] Connected to WebSocket securely.');
+        this.client.connect(8080, '127.0.0.1', () => {
+            console.log('[Signal] Connected to TCP socket securely.');
         });
 
-        this.ws.on('message', async (data) => {
-            try {
-                const parsed = JSON.parse(data);
-                // The structure usually has envelope.dataMessage
-                if (!parsed.envelope || !parsed.envelope.dataMessage || !parsed.envelope.dataMessage.message) {
-                    return;
+        this.client.on('data', async (data) => {
+            buffer += data.toString();
+            let lines = buffer.split('\n');
+            buffer = lines.pop(); // keep remainder
+
+            for (let line of lines) {
+                if (!line.trim()) continue;
+                try {
+                    const parsed = JSON.parse(line);
+
+                    // Unsolicited Push Events from daemon (receive)
+                    if (parsed.method === 'receive' && parsed.params && parsed.params.envelope) {
+                        const envelope = parsed.params.envelope;
+                        if (!envelope.dataMessage || !envelope.dataMessage.message) continue;
+
+                        const messageText = envelope.dataMessage.message;
+                        const sender = envelope.source;
+
+                        // Do not parse messages sent from ourselves
+                        if (sender === this.signalPhone) continue;
+
+                        console.log(`[Signal] Received from ${sender}: ${messageText}`);
+
+                        // Forward to router
+                        if (this.routerCallback) {
+                            await this.routerCallback('signal', sender, messageText);
+                        }
+                    }
+                    // Responses to our JSON-RPC requests (e.g., send)
+                    else if (parsed.id && this.pendingRequests.has(parsed.id.toString())) {
+                        const req = this.pendingRequests.get(parsed.id.toString());
+                        if (parsed.error) {
+                            req.reject(parsed.error);
+                        } else {
+                            req.resolve(parsed.result);
+                        }
+                        this.pendingRequests.delete(parsed.id.toString());
+                    }
+                } catch (e) {
+                    console.error('[Signal] Error parsing JSON-RPC line:', e, line);
                 }
-
-                const messageText = parsed.envelope.dataMessage.message;
-                const sender = parsed.envelope.source;
-
-                // Do not parse messages sent from ourselves unless necessary
-                if (sender === this.signalPhone) return;
-
-                console.log(`[Signal] Received from ${sender}: ${messageText}`);
-
-                // Forward to router
-                if (this.routerCallback) {
-                    await this.routerCallback('signal', sender, messageText);
-                }
-
-            } catch (e) {
-                console.error('[Signal] Error parsing incoming message:', e);
             }
         });
 
-        this.ws.on('close', () => {
-            console.log('[Signal] WS disconnected. Reconnecting in 5s...');
+        this.client.on('close', () => {
+            console.log('[Signal] TCP disconnected. Reconnecting in 5s...');
             setTimeout(() => this.start(), 5000);
         });
 
-        this.ws.on('error', (err) => {
-            console.error('[Signal] WS error:', err.message);
-            this.ws.close();
+        this.client.on('error', (err) => {
+            console.error('[Signal] TCP error:', err.message);
+            // close will be fired
         });
     }
 
     async sendMessage(recipient, text) {
-        try {
-            const url = `${this.signalUrl}/v2/send`;
+        return new Promise((resolve, reject) => {
+            if (!this.client || this.client.readyState !== 'open') {
+                return reject(new Error('Signal TCP client not open'));
+            }
+
+            this.requestId++;
+            const id = this.requestId.toString();
+
+            this.pendingRequests.set(id, { resolve, reject });
+
             const payload = {
-                message: text,
-                number: this.signalPhone,
-                recipients: [recipient],
-                text_mode: "normal"
+                jsonrpc: "2.0",
+                method: "send",
+                params: {
+                    recipient: [recipient],
+                    message: text
+                },
+                id: id
             };
-            await axios.post(url, payload);
-            console.log(`[Signal] Sent message to ${recipient}`);
-        } catch (error) {
-            console.error('[Signal] Failed to send message:', error.message);
-        }
+
+            this.client.write(JSON.stringify(payload) + '\n');
+            console.log(`[Signal] Sending message to ${recipient}`);
+
+            // cleanup if no response in 10s
+            setTimeout(() => {
+                if (this.pendingRequests.has(id)) {
+                    this.pendingRequests.delete(id);
+                    reject(new Error('Timeout waiting for signal-cli response'));
+                }
+            }, 10000);
+        });
     }
 }
 

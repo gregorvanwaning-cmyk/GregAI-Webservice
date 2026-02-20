@@ -15,7 +15,13 @@ class CommandParser {
     }
 
     async processMessage(platform, sender, text) {
-        const cmd = text.trim();
+        if (!text) {
+            console.error(`[Parser] Received undefined text from ${platform}:${sender}`);
+            return null;
+        }
+
+        console.log(`[Parser] Processing ${platform} from ${sender}: "${text}"`);
+        const cmd = text.trim().toLowerCase();
 
         // Check explicit wake commands if asleep
         if (this.isSleeping) {
