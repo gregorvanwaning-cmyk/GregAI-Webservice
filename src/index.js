@@ -1,0 +1,73 @@
+require('dotenv').config();
+const express = require('express');
+const WhatsAppClient = require('./whatsapp_client');
+const SignalClient = require('./signal_client');
+const CommandParser = require('./command_parser');
+const { exec } = require('child_process');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+let whatsapp, signal;
+
+async function restartServices() {
+    console.log("[SYSTEM] Restarting services...");
+    // If run using pm2 or Docker with restart-on-fail, exiting will trigger restart.
+    process.exit(1);
+}
+
+// Global Callback Router
+const routerCallback = async (platform, sender, messageText) => {
+    try {
+        const response = await CommandParser.processMessage(platform, sender, messageText);
+
+        if (!response) return; // Ignore if sleep mode without wakeup
+
+        if (response.action === 'RESTART') {
+            const msg = "Restarting GregAI services...";
+            if (platform === 'whatsapp') {
+                await whatsapp.sendMessage(sender, msg);
+            } else if (platform === 'signal') {
+                await signal.sendMessage(sender, msg);
+            }
+            setTimeout(restartServices, 1000); // Give time for message to send
+            return;
+        }
+
+        // Send back response natively
+        if (platform === 'whatsapp') {
+            await whatsapp.sendMessage(sender, response);
+        } else if (platform === 'signal') {
+            await signal.sendMessage(sender, response);
+        }
+
+    } catch (e) {
+        console.error(`[Router] Error handling message from ${platform}:`, e);
+    }
+};
+
+async function bootstrap() {
+    console.log("=== Starting GregAI Webservice ===");
+
+    // Initialize Clients
+    whatsapp = new WhatsAppClient(routerCallback);
+    signal = new SignalClient(routerCallback);
+
+    await whatsapp.start();
+    signal.start();
+
+    // Start HTTP Server for Render Health Checks
+    app.get('/', (req, res) => {
+        res.send("GregAI Webservice is running.");
+    });
+
+    app.get('/health', (req, res) => {
+        res.json({ status: "healthy", timestamp: Date.now() });
+    });
+
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`[Router] HTTP Server listening on port ${PORT}`);
+    });
+}
+
+bootstrap().catch(console.error);

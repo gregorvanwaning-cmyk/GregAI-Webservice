@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: gregai-webservice
+    env: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    disk:
+      name: gregai-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: NODE_ENV
+        value: production
+      - key: SIGNAL_PHONE
+        value: +31649649017
+      - key: SIGNAL_URL
+        value: http://127.0.0.1:8080
+      - key: KILO_API_KEY
+        sync: false # Set securely in Render dashboard
