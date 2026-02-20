@@ -23,7 +23,9 @@ RUN npm install --production
 COPY src/ ./src/
 COPY scripts/ ./scripts/
 
-# Ensure scripts are executable
+# Ensure scripts are executable and have linux line endings
+RUN apk add --no-cache dos2unix
+RUN dos2unix ./scripts/*.sh
 RUN chmod +x ./scripts/start.sh
 RUN chmod +x ./scripts/maintenance.sh
 
