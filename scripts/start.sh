@@ -5,9 +5,14 @@
 crond -b
 
 echo "Checking for persistent authentication backups..."
-if [ -f "/etc/secrets/auth_backup.zip" ]; then
-    echo "Restoring authentication data from Secret File..."
-    unzip -qo /etc/secrets/auth_backup.zip -d /app/
+if [ -n "$AUTH_BACKUP_URL" ]; then
+    echo "Downloading authentication data from AUTH_BACKUP_URL..."
+    curl -sL "$AUTH_BACKUP_URL" -o /tmp/auth_backup.zip
+    if [ -f "/tmp/auth_backup.zip" ]; then
+        echo "Extracting authentication data..."
+        unzip -qo /tmp/auth_backup.zip -d /app/
+        rm /tmp/auth_backup.zip
+    fi
 fi
 
 echo "Starting Signal-CLI REST API (Daemon mode) limited to 128MB..."
