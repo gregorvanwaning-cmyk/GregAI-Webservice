@@ -117,15 +117,29 @@ class CommandParser {
         const chatId = platform === 'whatsapp' && sender.includes('::') ? sender.split('::')[0] : sender;
         const history = MemoryManager.getHistory(chatId);
 
-        // Send original 'text' to preserve casing and whitespace, not the lowercased 'cmd'
-        const { text: responseText, durationSec } = await KiloAPI.queryLLM(this.activeModel, text, this.systemPrompt, history);
+        // Hard timeout: if the entire LLM flow takes longer than 35s, bail out
+        // This prevents the event loop from blocking indefinitely
+        try {
+            const llmPromise = KiloAPI.queryLLM(this.activeModel, text, this.systemPrompt, history);
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('LLM_TIMEOUT')), 35000)
+            );
 
-        // Save conversation history
-        MemoryManager.addMessage(chatId, 'user', text);
-        MemoryManager.addMessage(chatId, 'assistant', responseText);
+            const { text: responseText, durationSec } = await Promise.race([llmPromise, timeoutPromise]);
 
-        let finalResponse = responseText + this.getTimestampFooter(this.activeModel, durationSec);
-        return finalResponse;
+            // Save conversation history
+            MemoryManager.addMessage(chatId, 'user', text);
+            MemoryManager.addMessage(chatId, 'assistant', responseText);
+
+            let finalResponse = responseText + this.getTimestampFooter(this.activeModel, durationSec);
+            return finalResponse;
+        } catch (e) {
+            console.error(`[Parser] LLM query failed:`, e.message);
+            if (e.message === 'LLM_TIMEOUT') {
+                return `⚠️ The AI took too long to respond (>35s). Please try again.`;
+            }
+            return `⚠️ Error: ${e.message}`;
+        }
     }
 }
 

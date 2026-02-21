@@ -7,12 +7,31 @@ class SignalClient {
         this.client = null;
         this.requestId = 0;
         this.pendingRequests = new Map();
+        this.isReconnecting = false;
+        this._reconnectTimer = null;
     }
 
     start() {
         if (!this.signalPhone) {
             console.warn("[Signal] SIGNAL_PHONE not set. Signal Client won't connect.");
             return;
+        }
+
+        if (this.isReconnecting) {
+            console.log('[Signal] Reconnect already in progress...');
+            return;
+        }
+        this.isReconnecting = true;
+
+        // Destroy old socket if it exists
+        if (this.client) {
+            try {
+                this.client.removeAllListeners();
+                this.client.destroy();
+            } catch (e) {
+                // Ignore
+            }
+            this.client = null;
         }
 
         console.log(`[Signal] Connecting to JSON-RPC TCP socket at 127.0.0.1:8080`);
@@ -22,6 +41,7 @@ class SignalClient {
 
         this.client.connect(8080, '127.0.0.1', () => {
             console.log('[Signal] Connected. Subscribing to incoming messages...');
+            this.isReconnecting = false;
             this.client.write(JSON.stringify({
                 jsonrpc: "2.0",
                 method: "receive",
@@ -39,7 +59,6 @@ class SignalClient {
                 try {
                     const parsed = JSON.parse(line);
 
-                    // Incoming message push events from the daemon
                     if (parsed.method === 'receive' && parsed.params && parsed.params.envelope) {
                         const envelope = parsed.params.envelope;
                         if (!envelope.dataMessage || !envelope.dataMessage.message) continue;
@@ -48,19 +67,15 @@ class SignalClient {
                         const senderPhone = envelope.source;
                         const groupId = envelope.dataMessage.groupInfo?.groupId || null;
 
-                        // Don't process our own messages
                         if (senderPhone === this.signalPhone) continue;
 
-                        // Route reply to group if message came from a group, otherwise to the sender
                         const replyTo = groupId ? `group:${groupId}` : senderPhone;
-
                         console.log(`[Signal] Received from ${senderPhone}${groupId ? ' (group:' + groupId.substring(0, 8) + '...)' : ''}: ${messageText}`);
 
                         if (this.routerCallback) {
                             await this.routerCallback('signal', replyTo, messageText);
                         }
                     }
-                    // Responses to our send requests
                     else if (parsed.id && this.pendingRequests.has(parsed.id.toString())) {
                         const req = this.pendingRequests.get(parsed.id.toString());
                         if (parsed.error) {
@@ -79,11 +94,23 @@ class SignalClient {
 
         this.client.on('close', () => {
             console.log('[Signal] TCP disconnected. Reconnecting in 5s...');
-            setTimeout(() => this.start(), 5000);
+            this.isReconnecting = false;
+
+            // Clear any existing reconnect timer
+            if (this._reconnectTimer) {
+                clearTimeout(this._reconnectTimer);
+            }
+            this._reconnectTimer = setTimeout(() => {
+                this._reconnectTimer = null;
+                this.start();
+            }, 5000);
         });
 
         this.client.on('error', (err) => {
-            console.error('[Signal] TCP error:', err.message);
+            // Do not log ECONNREFUSED every 5s — it's expected when signal-cli hasn't started yet
+            if (err.code !== 'ECONNREFUSED') {
+                console.error('[Signal] TCP error:', err.message);
+            }
         });
     }
 
@@ -94,13 +121,19 @@ class SignalClient {
                 return reject(new Error('Signal TCP client not open'));
             }
 
+            // Cap pending requests to prevent memory leaks
+            if (this.pendingRequests.size > 50) {
+                const oldestKey = this.pendingRequests.keys().next().value;
+                this.pendingRequests.delete(oldestKey);
+                console.warn('[Signal] Evicted oldest pending request (queue overflow)');
+            }
+
             this.requestId++;
             const id = this.requestId.toString();
             this.pendingRequests.set(id, { resolve, reject });
 
             let params;
             if (recipient.startsWith('group:')) {
-                // Group message: use groupId parameter
                 const groupId = recipient.replace('group:', '');
                 params = {
                     groupId: groupId,
@@ -109,7 +142,6 @@ class SignalClient {
                 };
                 console.log(`[Signal] Sending reply to group ${groupId.substring(0, 8)}...`);
             } else {
-                // Direct message: use recipient array
                 params = {
                     recipient: [recipient],
                     message: text,
@@ -127,7 +159,6 @@ class SignalClient {
 
             this.client.write(JSON.stringify(payload) + '\n');
 
-            // Timeout after 10s
             setTimeout(() => {
                 if (this.pendingRequests.has(id)) {
                     this.pendingRequests.delete(id);

@@ -8,38 +8,48 @@ class WhatsAppClient {
         this.routerCallback = routerCallback;
         this.sock = null;
         this.msgRetryCounterCache = new NodeCache();
-        this._baileys = null; // Cache the ESM import
-        this.processedMessages = []; // Track recently processed msg IDs to prevent duplicates
+        this._baileys = null;
+        this.processedMessages = [];
         this.isReconnecting = false;
         this.reconnectAttempts = 0;
+        this.lastConnectedAt = 0;    // Timestamp of last successful connection
+        this.lastMessageAt = 0;      // Timestamp of last message received/sent
+        this._reconnectTimer = null;  // Prevent overlapping timers
     }
 
-    /**
-     * Create (or recreate) the Baileys socket and bind its events.
-     * On reconnect we call _createSocket() instead of start() to avoid
-     * stacking duplicate event listeners.
-     */
     async start() {
         this._baileys = await import('@whiskeysockets/baileys');
         await this._createSocket();
     }
 
+    /**
+     * Exponential backoff with jitter: 5s, 10s, 20s, 40s, capped at 60s + random jitter
+     */
     _nextDelay() {
-        // Exponential backoff: 5s, 10s, 20s, 40s, capped at 60s
-        const delay = Math.min(5000 * Math.pow(2, this.reconnectAttempts), 60000);
+        const base = Math.min(5000 * Math.pow(2, this.reconnectAttempts), 60000);
+        const jitter = Math.floor(Math.random() * (base / 2));
         this.reconnectAttempts++;
-        return delay;
+        return base + jitter;
     }
 
-    async reconnect() {
+    /**
+     * SINGLE entry point for all reconnection. All paths go through here.
+     * Prevents duplicate socket creation via isReconnecting lock and timer guard.
+     */
+    reconnect(reason = 'unknown') {
         if (this.isReconnecting) {
-            console.log('[WhatsApp] Reconnect already in progress...');
+            console.log(`[WhatsApp] Reconnect already in progress (reason: ${reason}), skipping.`);
             return;
         }
         this.isReconnecting = true;
 
-        const delay = this._nextDelay();
-        console.log(`[WhatsApp] Forcefully disconnecting. Will rebuild in ${delay / 1000}s (attempt #${this.reconnectAttempts})...`);
+        // Clear any pending reconnect timer
+        if (this._reconnectTimer) {
+            clearTimeout(this._reconnectTimer);
+            this._reconnectTimer = null;
+        }
+
+        // Clean up old socket completely
         if (this.sock) {
             try {
                 this.sock.ev.removeAllListeners('creds.update');
@@ -49,8 +59,16 @@ class WhatsAppClient {
             } catch (e) {
                 // Ignore errors closing a dead socket
             }
+            this.sock = null;
         }
-        setTimeout(() => this._createSocket(), delay);
+
+        const delay = this._nextDelay();
+        console.log(`[WhatsApp] Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt #${this.reconnectAttempts}, reason: ${reason})`);
+
+        this._reconnectTimer = setTimeout(() => {
+            this._reconnectTimer = null;
+            this._createSocket();
+        }, delay);
     }
 
     async _createSocket() {
@@ -101,20 +119,20 @@ class WhatsAppClient {
                     const statusCode = lastDisconnect?.error?.output?.statusCode;
                     const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
                     console.log(`[WhatsApp] Connection closed (code: ${statusCode}). Reconnecting: ${shouldReconnect}`);
+
                     if (shouldReconnect) {
-                        if (!this.isReconnecting) {
-                            this.isReconnecting = true;
-                            const delay = this._nextDelay();
-                            console.log(`[WhatsApp] Scheduling reconnect in ${delay / 1000}s (attempt #${this.reconnectAttempts})...`);
-                            setTimeout(() => this._createSocket(), delay);
-                        }
+                        // Let reconnect() handle lock, cleanup, and backoff
+                        this.isReconnecting = false; // Unlock so reconnect() can proceed
+                        this.reconnect(`close_code_${statusCode}`);
                     } else {
                         console.log('[WhatsApp] Logged out. Delete auth_info_baileys and restart to scan QR.');
+                        this.isReconnecting = false;
                     }
                 } else if (connection === 'open') {
                     console.log('[WhatsApp] Connected securely.');
-                    // Reset backoff on successful connection
                     this.reconnectAttempts = 0;
+                    this.lastConnectedAt = Date.now();
+                    this.isReconnecting = false;
                 }
             });
 
@@ -127,16 +145,16 @@ class WhatsAppClient {
                 // ---- Deduplication Check ----
                 const msgId = msg.key.id;
                 if (this.processedMessages.includes(msgId)) {
-                    return; // Already processed this message
+                    return;
                 }
                 this.processedMessages.push(msgId);
                 if (this.processedMessages.length > 100) {
-                    this.processedMessages.shift(); // Keep only the last 100 IDs
+                    this.processedMessages.shift();
                 }
-                // -----------------------------
+
+                this.lastMessageAt = Date.now();
 
                 const remoteJid = msg.key.remoteJid;
-                // The actual sender phone is in participant for groups/LID, otherwise it's just the remoteJid
                 const senderPhone = msg.participant || msg.key.remoteJid;
 
                 const messageType = Object.keys(msg.message)[0];
@@ -153,18 +171,32 @@ class WhatsAppClient {
                 console.log(`[WhatsApp] Received from ${senderPhone} (JID: ${remoteJid}): ${text}`);
 
                 if (this.routerCallback) {
-                    // We pass BOTH the reply target (remoteJid) and the actual identity (senderPhone)
-                    // We format sender to "remoteJid::senderPhone" so the router can reply to the right place
-                    // but still check the real phone number for admin rights.
                     const senderIdentity = `${remoteJid}::${senderPhone}`;
                     await this.routerCallback('whatsapp', senderIdentity, text);
                 }
             });
 
-            this.isReconnecting = false;
         } catch (e) {
-            console.error('[WhatsApp] Reconnect fatal error:', e.message);
+            console.error('[WhatsApp] _createSocket fatal error:', e.message);
             this.isReconnecting = false;
+            // Schedule retry after a delay
+            const delay = this._nextDelay();
+            console.log(`[WhatsApp] Will retry _createSocket in ${(delay / 1000).toFixed(1)}s`);
+            this._reconnectTimer = setTimeout(() => {
+                this._reconnectTimer = null;
+                this._createSocket();
+            }, delay);
+        }
+    }
+
+    /**
+     * Returns true if the WhatsApp WebSocket is currently in an OPEN state.
+     */
+    isConnected() {
+        try {
+            return this.sock && this.sock.ws && this.sock.ws.readyState === 1;
+        } catch {
+            return false;
         }
     }
 
@@ -174,18 +206,16 @@ class WhatsAppClient {
             return;
         }
 
-        // Do NOT normalize @lid JIDs — Baileys routes them correctly internally.
-        // Converting @lid to @s.whatsapp.net sends replies to the WRONG person.
         console.log(`[WhatsApp] Sending reply to: ${recipientJid}`);
 
         try {
             const sendPromise = this.sock.sendMessage(recipientJid, { text: text });
-
             const timeoutPromise = new Promise((_, reject) => {
                 setTimeout(() => reject(new Error('TIMEOUT: WhatsApp send not acknowledged within 10s')), 10000);
             });
 
             await Promise.race([sendPromise, timeoutPromise]);
+            this.lastMessageAt = Date.now();
             console.log(`[WhatsApp] Message delivered to ${recipientJid}`);
         } catch (error) {
             console.error(`[WhatsApp] Send error to ${recipientJid}:`, error.message || error);
