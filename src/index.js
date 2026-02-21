@@ -93,18 +93,23 @@ async function bootstrap() {
     //  KEEP-ALIVE SELF-PING — prevents Render free tier from spinning down
     //  Render's free tier kills containers after ~15 min of no inbound HTTP.
     //  WebSocket/TCP traffic (WhatsApp, Signal) does NOT count.
-    //  We ping our own /health endpoint every 10 minutes to stay alive.
+    //  Randomized interval (10-15 min) to look organic.
     // ===================================================================
     const SERVICE_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
-    setInterval(async () => {
-        try {
-            const axios = require('axios');
-            const res = await axios.get(`${SERVICE_URL}/health`, { timeout: 10000 });
-            console.log(`[KeepAlive] Self-ping OK. Status: ${JSON.stringify(res.data)}`);
-        } catch (e) {
-            console.warn(`[KeepAlive] Self-ping failed: ${e.message}`);
-        }
-    }, 10 * 60 * 1000); // Every 10 minutes
+    function scheduleKeepAlive() {
+        const delay = (10 + Math.random() * 5) * 60 * 1000; // 10-15 min
+        setTimeout(async () => {
+            try {
+                const axios = require('axios');
+                const res = await axios.get(`${SERVICE_URL}/health`, { timeout: 10000 });
+                console.log(`[KeepAlive] Self-ping OK (next in ~${Math.round(delay / 60000)}min)`);
+            } catch (e) {
+                console.warn(`[KeepAlive] Self-ping failed: ${e.message}`);
+            }
+            scheduleKeepAlive();
+        }, delay);
+    }
+    scheduleKeepAlive();
 
     // ===================================================================
     //  CONNECTION MONITOR — runs every 2 minutes
