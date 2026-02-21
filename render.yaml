@@ -15,5 +15,7 @@ services:
         value: +31649649017
       - key: SIGNAL_URL
         value: http://127.0.0.1:8080
+      - key: RENDER_EXTERNAL_URL
+        value: https://gregai-webservice.onrender.com
       - key: KILO_API_KEY
         sync: false # Set securely in Render dashboard

@@ -90,6 +90,23 @@ async function bootstrap() {
     });
 
     // ===================================================================
+    //  KEEP-ALIVE SELF-PING — prevents Render free tier from spinning down
+    //  Render's free tier kills containers after ~15 min of no inbound HTTP.
+    //  WebSocket/TCP traffic (WhatsApp, Signal) does NOT count.
+    //  We ping our own /health endpoint every 10 minutes to stay alive.
+    // ===================================================================
+    const SERVICE_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+    setInterval(async () => {
+        try {
+            const axios = require('axios');
+            const res = await axios.get(`${SERVICE_URL}/health`, { timeout: 10000 });
+            console.log(`[KeepAlive] Self-ping OK. Status: ${JSON.stringify(res.data)}`);
+        } catch (e) {
+            console.warn(`[KeepAlive] Self-ping failed: ${e.message}`);
+        }
+    }, 10 * 60 * 1000); // Every 10 minutes
+
+    // ===================================================================
     //  CONNECTION MONITOR — runs every 2 minutes
     //  IMPORTANT: This does NOT tear down the socket. It only logs status.
     //  Baileys handles its own reconnection via the connection.update event.
