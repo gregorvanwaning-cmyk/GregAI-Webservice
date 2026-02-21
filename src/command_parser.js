@@ -62,6 +62,7 @@ class CommandParser {
             return "🛠️ *GregAI Commands:*\n" +
                 "/models - List available free LLMs\n" +
                 "/model/[number] - Switch LLM by number from list\n" +
+                "/systemprompt - Show the current system prompt\n" +
                 "/systemprompt/[prompt] - Change the AI's behavior\n" +
                 "/sleep - Put the AI into sleep mode (ignores messages)\n" +
                 "/wakeup - Wake up the AI from sleep mode\n" +
@@ -102,8 +103,12 @@ class CommandParser {
             }
         }
 
+        if (cmd === '/systemprompt') {
+            return `📋 *Current System Prompt:*\n\n${this.systemPrompt}`;
+        }
+
         if (cmd.startsWith('/systemprompt/')) {
-            const newPrompt = cmd.replace(/\/systemprompt\/?/, '').trim();
+            const newPrompt = text.trim().substring('/systemprompt/'.length).trim();
             if (newPrompt) {
                 this.systemPrompt = newPrompt;
                 return "System prompt updated successfully.";

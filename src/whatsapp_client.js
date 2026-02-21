@@ -13,7 +13,7 @@ class WhatsAppClient {
         this.isReconnecting = false;
         this.reconnectAttempts = 0;
         this.lastConnectedAt = 0;    // Timestamp of last successful connection
-        this.lastMessageAt = 0;      // Timestamp of last message received/sent
+        this.lastActivityAt = 0;     // Timestamp of ANY activity (connect, msg in, msg out)
         this._reconnectTimer = null;  // Prevent overlapping timers
     }
 
@@ -132,6 +132,7 @@ class WhatsAppClient {
                     console.log('[WhatsApp] Connected securely.');
                     this.reconnectAttempts = 0;
                     this.lastConnectedAt = Date.now();
+                    this.lastActivityAt = Date.now();
                     this.isReconnecting = false;
                 }
             });
@@ -152,7 +153,7 @@ class WhatsAppClient {
                     this.processedMessages.shift();
                 }
 
-                this.lastMessageAt = Date.now();
+                this.lastActivityAt = Date.now();
 
                 const remoteJid = msg.key.remoteJid;
                 const senderPhone = msg.participant || msg.key.remoteJid;
@@ -190,14 +191,15 @@ class WhatsAppClient {
     }
 
     /**
-     * Returns true if the WhatsApp WebSocket is currently in an OPEN state.
+     * Returns true if WhatsApp has shown recent activity (within the last 5 minutes).
+     * We do NOT use ws.readyState because Baileys' internal WS state is unreliable —
+     * it can report not-open even while messages are actively flowing.
      */
-    isConnected() {
-        try {
-            return this.sock && this.sock.ws && this.sock.ws.readyState === 1;
-        } catch {
-            return false;
-        }
+    isHealthy() {
+        if (!this.sock) return false;
+        const now = Date.now();
+        const fiveMinutes = 5 * 60 * 1000;
+        return (now - this.lastActivityAt) < fiveMinutes;
     }
 
     async sendMessage(recipientJid, text) {
@@ -215,7 +217,7 @@ class WhatsAppClient {
             });
 
             await Promise.race([sendPromise, timeoutPromise]);
-            this.lastMessageAt = Date.now();
+            this.lastActivityAt = Date.now();
             console.log(`[WhatsApp] Message delivered to ${recipientJid}`);
         } catch (error) {
             console.error(`[WhatsApp] Send error to ${recipientJid}:`, error.message || error);

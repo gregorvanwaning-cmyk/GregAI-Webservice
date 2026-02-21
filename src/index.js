@@ -70,15 +70,15 @@ async function bootstrap() {
     });
 
     app.get('/health', (req, res) => {
-        const waConnected = whatsapp?.isConnected() || false;
+        const waHealthy = whatsapp?.isHealthy() || false;
         const waReconnecting = whatsapp?.isReconnecting || false;
         const sigConnected = signal?.client?.readyState === 'open';
 
         res.json({
             status: 'running',
             uptime: Math.round(process.uptime()),
-            whatsapp: waConnected ? 'connected' : (waReconnecting ? 'reconnecting' : 'disconnected'),
-            whatsappLastConnected: whatsapp?.lastConnectedAt ? new Date(whatsapp.lastConnectedAt).toISOString() : 'never',
+            whatsapp: waHealthy ? 'healthy' : (waReconnecting ? 'reconnecting' : 'inactive'),
+            whatsappLastActivity: whatsapp?.lastActivityAt ? new Date(whatsapp.lastActivityAt).toISOString() : 'never',
             signal: sigConnected ? 'connected' : 'disconnected',
             memoryMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
             timestamp: new Date().toISOString()
@@ -98,12 +98,13 @@ async function bootstrap() {
     let consecutiveDeadChecks = 0;
 
     setInterval(() => {
-        const connected = whatsapp?.isConnected() || false;
+        const healthy = whatsapp?.isHealthy() || false;
         const reconnecting = whatsapp?.isReconnecting || false;
 
-        if (connected) {
+        if (healthy) {
             consecutiveDeadChecks = 0;
-            console.log(`[Monitor] WhatsApp OK. Uptime: ${Math.round(process.uptime())}s`);
+            const lastAct = whatsapp?.lastActivityAt ? new Date(whatsapp.lastActivityAt).toISOString() : 'never';
+            console.log(`[Monitor] WhatsApp OK. Last activity: ${lastAct}. Uptime: ${Math.round(process.uptime())}s`);
             return;
         }
 
@@ -112,16 +113,16 @@ async function bootstrap() {
             return;
         }
 
-        // Connection is not open AND not actively reconnecting
+        // No activity in the last 5 minutes AND not actively reconnecting
         consecutiveDeadChecks++;
-        console.warn(`[Monitor] WhatsApp not connected (check #${consecutiveDeadChecks}). ` +
-            `Last connected: ${whatsapp?.lastConnectedAt ? new Date(whatsapp.lastConnectedAt).toISOString() : 'never'}`);
+        const lastAct = whatsapp?.lastActivityAt ? new Date(whatsapp.lastActivityAt).toISOString() : 'never';
+        console.warn(`[Monitor] WhatsApp inactive (check #${consecutiveDeadChecks}). Last activity: ${lastAct}`);
 
-        // After 3 consecutive dead checks (6 minutes), trigger a reconnect
-        if (consecutiveDeadChecks >= 3) {
-            console.error(`[Monitor] WhatsApp dead for ${consecutiveDeadChecks * 2} minutes. Forcing reconnect.`);
+        // After 5 consecutive inactive checks (10 minutes), trigger a reconnect
+        if (consecutiveDeadChecks >= 5) {
+            console.error(`[Monitor] WhatsApp inactive for ${consecutiveDeadChecks * 2} minutes. Forcing reconnect.`);
             consecutiveDeadChecks = 0;
-            if (whatsapp) whatsapp.reconnect('monitor_dead_6min');
+            if (whatsapp) whatsapp.reconnect('monitor_inactive_10min');
         }
     }, 2 * 60 * 1000);
 
@@ -138,18 +139,18 @@ async function bootstrap() {
         // Don't check during initial boot (give it 3 minutes to settle)
         if (uptimeMs < 3 * 60 * 1000) return;
 
-        const lastConn = whatsapp?.lastConnectedAt || 0;
-        const disconnectedMs = now - lastConn;
+        const lastActivity = whatsapp?.lastActivityAt || 0;
+        const inactiveMs = now - lastActivity;
 
-        // If never connected at all after 5 minutes of uptime, restart
-        if (lastConn === 0 && uptimeMs > 5 * 60 * 1000) {
+        // If never had any activity after 5 minutes of uptime, restart
+        if (lastActivity === 0 && uptimeMs > 5 * 60 * 1000) {
             console.error(`[Watchdog] WhatsApp NEVER connected after ${Math.round(uptimeMs / 1000)}s uptime. Restarting process!`);
             process.exit(1);
         }
 
-        // If disconnected for more than 10 minutes, restart
-        if (lastConn > 0 && disconnectedMs > 10 * 60 * 1000 && !whatsapp?.isConnected()) {
-            console.error(`[Watchdog] WhatsApp disconnected for ${Math.round(disconnectedMs / 1000)}s. Restarting process!`);
+        // If no activity for more than 15 minutes, restart
+        if (lastActivity > 0 && inactiveMs > 15 * 60 * 1000) {
+            console.error(`[Watchdog] WhatsApp inactive for ${Math.round(inactiveMs / 60000)} minutes. Restarting process!`);
             process.exit(1);
         }
     }, 5 * 60 * 1000);
